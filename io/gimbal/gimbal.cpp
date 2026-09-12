@@ -1,5 +1,7 @@
 #include "gimbal.hpp"
 
+#include <fmt/format.h>
+
 #include "tools/crc.hpp"
 #include "tools/logger.hpp"
 #include "tools/math_tools.hpp"
@@ -9,6 +11,9 @@ namespace io
 {
 Gimbal::Gimbal(const std::string & config_path)
 {
+  serial_.setBaudrate(921600);
+  auto timeout = serial::Timeout::simpleTimeout(100);
+  serial_.setTimeout(timeout);
   auto yaml = tools::load(config_path);
   auto com_port = tools::read<std::string>(yaml, "com_port");
 
@@ -87,7 +92,7 @@ void Gimbal::send(io::VisionToGimbal VisionToGimbal)
   tx_data_.pitch_vel = VisionToGimbal.pitch_vel;
   tx_data_.pitch_acc = VisionToGimbal.pitch_acc;
   tx_data_.crc16 = tools::get_crc16(
-    reinterpret_cast<uint8_t *>(&tx_data_), sizeof(tx_data_) - sizeof(tx_data_.crc16));
+    reinterpret_cast<uint8_t *>(&tx_data_), sizeof(tx_data_));
 
   try {
     serial_.write(reinterpret_cast<uint8_t *>(&tx_data_), sizeof(tx_data_));
@@ -99,7 +104,8 @@ void Gimbal::send(io::VisionToGimbal VisionToGimbal)
 void Gimbal::send(
   bool control, bool fire, float yaw, float yaw_vel, float yaw_acc, float pitch, float pitch_vel,
   float pitch_acc)
-{
+{ 
+  auto mode = control ? (fire ? 2 : 1) : 0;
   tx_data_.mode = control ? (fire ? 2 : 1) : 0;
   tx_data_.yaw = yaw;
   tx_data_.yaw_vel = yaw_vel;
@@ -109,7 +115,9 @@ void Gimbal::send(
   tx_data_.pitch_acc = pitch_acc;
   tx_data_.crc16 = tools::get_crc16(
     reinterpret_cast<uint8_t *>(&tx_data_), sizeof(tx_data_) - sizeof(tx_data_.crc16));
-
+  // tools::logger()->warn("[Gimbal] Sending command: mode={}, yaw={:.2f}, yaw_vel={:.2f}, yaw_acc={:.2f}, "
+  //                        "pitch={:.2f}, pitch_vel={:.2f}, pitch_acc={:.2f}",
+  //                         mode, yaw, yaw_vel, yaw_acc, pitch, pitch_vel, pitch_acc);
   try {
     serial_.write(reinterpret_cast<uint8_t *>(&tx_data_), sizeof(tx_data_));
   } catch (const std::exception & e) {
@@ -133,19 +141,27 @@ void Gimbal::read_thread()
   int error_count = 0;
 
   while (!quit_) {
-    if (error_count > 5000) {
-      error_count = 0;
+    if (error_count > 500) {
       tools::logger()->warn("[Gimbal] Too many errors, attempting to reconnect...");
       reconnect();
+      error_count = 0;
       continue;
     }
 
-    if (!read(reinterpret_cast<uint8_t *>(&rx_data_), sizeof(rx_data_.head))) {
+    // 逐字节搜索帧头 'S','P'，避免因数据中出现 0x53 0x50 而帧同步错位
+    if (!read(reinterpret_cast<uint8_t *>(&rx_data_.head[0]), 1)) {
       error_count++;
+      std::this_thread::sleep_for(std::chrono::microseconds(100));
       continue;
     }
+    if (rx_data_.head[0] != 'S') continue;
 
-    if (rx_data_.head[0] != 'S' || rx_data_.head[1] != 'P') continue;
+    if (!read(reinterpret_cast<uint8_t *>(&rx_data_.head[1]), 1)) {
+      error_count++;
+      std::this_thread::sleep_for(std::chrono::microseconds(100));
+      continue;
+    }
+    if (rx_data_.head[1] != 'P') continue;
 
     auto t = std::chrono::steady_clock::now();
 
@@ -156,24 +172,39 @@ void Gimbal::read_thread()
       continue;
     }
 
-    if (!tools::check_crc16(reinterpret_cast<uint8_t *>(&rx_data_), sizeof(rx_data_))) {
-      tools::logger()->debug("[Gimbal] CRC16 check failed.");
-      continue;
+    // 数据校验：四元数模长 + 角度范围
+    {
+      float q0 = rx_data_.q[0], q1 = rx_data_.q[1], q2 = rx_data_.q[2], q3 = rx_data_.q[3];
+      float norm = std::sqrt(q0 * q0 + q1 * q1 + q2 * q2 + q3 * q3);
+      if (norm < 0.9f || norm > 1.1f) {
+        tools::logger()->warn("[Gimbal] Bad quaternion norm={:.4f}, dropping frame.", norm);
+        continue;
+      }
     }
 
     error_count = 0;
     Eigen::Quaterniond q(rx_data_.q[0], rx_data_.q[1], rx_data_.q[2], rx_data_.q[3]);
     queue_.push({q, t});
+    // 从四元数解算 yaw/pitch/roll (ZYX 内旋)
+    Eigen::Vector3d q_ypr = tools::eulers(q, 2, 1, 0);
+    double q_yaw = q_ypr[0] * 180.0 / M_PI;
+    double q_pitch = q_ypr[1] * 180.0 / M_PI;
+    double q_roll = q_ypr[2] * 180.0 / M_PI;
 
     std::lock_guard<std::mutex> lock(mutex_);
 
-    state_.yaw = rx_data_.yaw;
+    state_.yaw = q_ypr[0];
     state_.yaw_vel = rx_data_.yaw_vel;
-    state_.pitch = rx_data_.pitch;
+    state_.pitch = q_ypr[1];
     state_.pitch_vel = rx_data_.pitch_vel;
     state_.bullet_speed = rx_data_.bullet_speed;
     state_.bullet_count = rx_data_.bullet_count;
 
+    tools::logger()->info(
+      "[Gimbal] yaw={:.2f}, pitch={:.2f} | Quat-> yaw={:.2f}, pitch={:.2f}, roll={:.2f} | "
+      "q_xyzw=[{:.6f}, {:.6f}, {:.6f}, {:.6f}]",
+      state_.yaw, state_.pitch, q_yaw, q_pitch, q_roll,
+      q.x(), q.y(), q.z(), q.w());
     switch (rx_data_.mode) {
       case 0:
         mode_ = GimbalMode::IDLE;
@@ -212,6 +243,8 @@ void Gimbal::reconnect()
       serial_.open();  // 尝试重新打开
       queue_.clear();
       tools::logger()->info("[Gimbal] Reconnected serial successfully.");
+      // 等待云台设备稳定后再返回
+      std::this_thread::sleep_for(std::chrono::milliseconds(500));
       break;
     } catch (const std::exception & e) {
       tools::logger()->warn("[Gimbal] Reconnect failed: {}", e.what());

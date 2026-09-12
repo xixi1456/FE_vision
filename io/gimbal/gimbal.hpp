@@ -18,6 +18,7 @@ struct __attribute__((packed)) GimbalToVision
 {
   uint8_t head[2] = {'S', 'P'};
   uint8_t mode;  // 0: 空闲, 1: 自瞄, 2: 小符, 3: 大符
+  uint8_t _pad;  // 强制 packed 对齐，与下位机一致
   float q[4];    // wxyz顺序
   float yaw;
   float yaw_vel;
@@ -28,7 +29,7 @@ struct __attribute__((packed)) GimbalToVision
   uint16_t crc16;
 };
 
-static_assert(sizeof(GimbalToVision) <= 64);
+static_assert(sizeof(GimbalToVision) == 44, "GimbalToVision must be 44 bytes");
 
 struct __attribute__((packed)) VisionToGimbal
 {
