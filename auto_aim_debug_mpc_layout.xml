@@ -1,0 +1,119 @@
+<?xml version='1.0' encoding='UTF-8'?>
+<root>
+ <tabbed_widget parent="main_window" name="Main Window">
+  <Tab tab_name="tab1_yaw" containers="1">
+   <Container>
+    <DockSplitter orientation="-" count="3" sizes="0.333333;0.333333;0.333333">
+     <DockArea name="...">
+      <plot mode="TimeSeries" flip_y="false" style="Lines" flip_x="false">
+       <range left="0.000000" right="30.000000" bottom="-0.100000" top="0.100000"/>
+       <limitY/>
+       <curve name="/target_yaw" color="#17becf"/>
+       <curve name="/plan_yaw" color="#d62728"/>
+       <curve name="/gimbal_yaw" color="#1f77b4"/>
+      </plot>
+     </DockArea>
+     <DockArea name="...">
+      <plot mode="TimeSeries" flip_y="false" style="Lines" flip_x="false">
+       <range left="0.000000" right="30.000000" bottom="-5.000000" top="5.000000"/>
+       <limitY/>
+       <curve name="/plan_yaw_vel" color="#17becf"/>
+       <curve name="/gimbal_yaw_vel" color="#d62728"/>
+       <curve name="/w" color="#bcbd22"/>
+      </plot>
+     </DockArea>
+     <DockArea name="...">
+      <plot mode="TimeSeries" flip_y="false" style="Lines" flip_x="false">
+       <range left="0.000000" right="30.000000" bottom="-50.000000" top="50.000000"/>
+       <limitY/>
+       <curve name="/plan_yaw_acc" color="#1ac938"/>
+      </plot>
+     </DockArea>
+    </DockSplitter>
+   </Container>
+  </Tab>
+  <Tab tab_name="tab2_pitch" containers="1">
+   <Container>
+    <DockSplitter orientation="-" count="3" sizes="0.333333;0.333333;0.333333">
+     <DockArea name="...">
+      <plot mode="TimeSeries" flip_y="false" style="Lines" flip_x="false">
+       <range left="0.000000" right="30.000000" bottom="-0.100000" top="0.100000"/>
+       <limitY/>
+       <curve name="/target_pitch" color="#17becf"/>
+       <curve name="/plan_pitch" color="#d62728"/>
+       <curve name="/gimbal_pitch" color="#1f77b4"/>
+      </plot>
+     </DockArea>
+     <DockArea name="...">
+      <plot mode="TimeSeries" flip_y="false" style="Lines" flip_x="false">
+       <range left="0.000000" right="30.000000" bottom="-5.000000" top="5.000000"/>
+       <limitY/>
+       <curve name="/plan_pitch_vel" color="#17becf"/>
+       <curve name="/gimbal_pitch_vel" color="#d62728"/>
+      </plot>
+     </DockArea>
+     <DockArea name="...">
+      <plot mode="TimeSeries" flip_y="false" style="Lines" flip_x="false">
+       <range left="0.000000" right="30.000000" bottom="-100.000000" top="100.000000"/>
+       <limitY/>
+       <curve name="/plan_pitch_acc" color="#1ac938"/>
+      </plot>
+     </DockArea>
+    </DockSplitter>
+   </Container>
+  </Tab>
+  <Tab tab_name="tab3_fire" containers="1">
+   <Container>
+    <DockSplitter orientation="-" count="3" sizes="0.333333;0.333333;0.333333">
+     <DockArea name="...">
+      <plot mode="TimeSeries" flip_y="false" style="Steps" flip_x="false">
+       <range left="0.000000" right="30.000000" bottom="-0.100000" top="1.100000"/>
+       <limitY/>
+       <curve name="/fire" color="#ff7f0e"/>
+       <curve name="/fired" color="#d62728"/>
+      </plot>
+     </DockArea>
+     <DockArea name="...">
+      <plot mode="TimeSeries" flip_y="false" style="Lines" flip_x="false">
+       <range left="0.000000" right="30.000000" bottom="-1.000000" top="3.000000"/>
+       <limitY/>
+       <curve name="/target_z" color="#1f77b4"/>
+       <curve name="/target_vz" color="#ff7f0e"/>
+      </plot>
+     </DockArea>
+     <DockArea name="...">
+      <plot mode="TimeSeries" flip_y="false" style="Lines" flip_x="false">
+       <range left="0.000000" right="30.000000" bottom="-10.000000" top="10.000000"/>
+       <limitY/>
+       <curve name="/w" color="#9467bd"/>
+       <curve name="/t" color="#f14cc1"/>
+      </plot>
+     </DockArea>
+    </DockSplitter>
+   </Container>
+  </Tab>
+  <currentTabIndex index="0"/>
+ </tabbed_widget>
+ <use_relative_time_offset enabled="1"/>
+ <!-- - - - - - - - - - - - - - - -->
+ <!-- - - - - - - - - - - - - - - -->
+ <Plugins>
+  <plugin ID="DataLoad CSV">
+   <parameters delimiter="0" time_axis=""/>
+  </plugin>
+  <plugin ID="UDP Server"/>
+  <plugin ID="WebSocket Server"/>
+  <plugin ID="ZMQ Subscriber"/>
+  <plugin ID="Fast Fourier Transform"/>
+  <plugin ID="Quaternion to RPY"/>
+  <plugin ID="Reactive Script Editor"/>
+  <plugin ID="CSV Exporter"/>
+ </Plugins>
+ <!-- - - - - - - - - - - - - - - -->
+ <previouslyLoaded_Datafiles/>
+ <previouslyLoaded_Streamer name="UDP Server"/>
+ <!-- - - - - - - - - - - - - - - -->
+ <customMathEquations/>
+ <snippets/>
+ <!-- - - - - - - - - - - - - - - -->
+</root>
