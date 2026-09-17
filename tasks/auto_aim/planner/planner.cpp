@@ -24,8 +24,6 @@ Planner::Planner(const std::string & config_path)
     yaml["comming_angle"] ? yaml["comming_angle"].as<double>() / 57.3 : 45.0 / 57.3;  // degree to rad
   leaving_angle_ =
     yaml["leaving_angle"] ? yaml["leaving_angle"].as<double>() / 57.3 : 20.0 / 57.3;  // degree to rad
-  // 小陀螺判定阈值，默认 2 rad/s（|w| 超过它才走“来去角”分支）
-  spin_decision_speed_ = yaml["spin_decision_speed"] ? yaml["spin_decision_speed"].as<double>() : 2.0;
 
   setup_yaw_solver(config_path);
   setup_pitch_solver(config_path);
@@ -57,28 +55,15 @@ Plan Planner::plan(Target target, double bullet_speed)
   auto bullet_traj = tools::Trajectory(bullet_speed, min_dist, xyz.z());
   target.predict(bullet_traj.fly_time);
 
-  // 2. 在“命中时刻”的状态上只选一次装甲板，整条参考轨迹固定用这块板。
-  // 逐列重新选板会在换板处让参考角跳变，污染下发的前馈 vel/acc（实测导致周期性尖峰）。
-  int armor_id;
+  // 2. Get trajectory
   double yaw0;
   Trajectory traj;
-  Eigen::Vector4d aim_xyza;  // 命中时刻选中的装甲板，供调试显示
   try {
-    armor_id = select_target_id(target, target.armor_xyza_list());
-    if (armor_id < 0) throw std::runtime_error("No selectable armor!");
-    aim_xyza = target.armor_xyza_list()[armor_id];
-    yaw0 = aim(target, armor_id, bullet_speed)(0);
-    traj = get_trajectory(target, armor_id, yaw0, bullet_speed);
+    yaw0 = aim(target, bullet_speed)(0);
+    traj = get_trajectory(target, yaw0, bullet_speed);
   } catch (const std::exception & e) {
     tools::logger()->warn("Unsolvable target {:.2f}", bullet_speed);
     return {false};
-  }
-
-  {
-    // 调试用：debug_xyza 现在是“命中时刻选中的板”，与 plan.target_yaw/pitch 同一时刻语义
-    // （get_trajectory 会把 target 预测到 +0.5s，所以必须在这里、预测之前记录）
-    std::lock_guard<std::mutex> lock(debug_mutex_);
-    debug_xyza_ = aim_xyza;
   }
 
   // 3. Solve yaw
@@ -179,21 +164,18 @@ void Planner::setup_pitch_solver(const std::string & config_path)
   pitch_solver_->settings->max_iter = 10;
 }
 
-int Planner::select_target_id(
-  const Target & target, const std::vector<Eigen::Vector4d> & armor_xyza_list)
+void Planner::select_target_xyza(
+  const Target & target, const std::vector<Eigen::Vector4d> & armor_xyza_list, Eigen::Vector3d & xyz,
+  double & yaw)
 {
-  const int armor_num = static_cast<int>(armor_xyza_list.size());
-  if (armor_num <= 0) return -1;
+  auto min_dist = 1e10;
+  auto armor_num = armor_xyza_list.size();
 
   // 整车旋转中心的球坐标yaw
   auto center_yaw = std::atan2(target.ekf_x()[2], target.ekf_x()[0]);
 
-  // 小陀螺判定：状态定义为 [x vx y vy z vz a w r l h]，x[7] 才是自转角速度 w
-  // （x[8] 是旋转半径 r，原来写成 x[8] 会让该判定恒为“非小陀螺”）
-  const double w = target.ekf_x()[7];
-  const bool spinning = std::abs(w) > spin_decision_speed_;
-
-  if (!spinning && target.name != ArmorName::outpost) {
+  // 不考虑小陀螺（状态定义 [x vx y vy z vz a w r l h]：x[7] 是角速度 w，x[8] 是旋转半径 r）
+  if (std::abs(target.ekf_x()[7]) <= 2 && target.name != ArmorName::outpost) {
     // 选择在可射击范围内的装甲板
     std::vector<int> id_list;
     std::vector<double> delta_angle_list;
@@ -219,46 +201,57 @@ int Planner::select_target_id(
             }
           }
         }
-        return lock_slot_id_;
+        xyz = armor_xyza_list[lock_slot_id_].head<3>();
+        yaw = armor_xyza_list[lock_slot_id_][3];
+        return;
       }
 
       // 只有一个装甲板在可射击范围内时，退出锁定模式
       lock_slot_id_ = -1;
-      return id_list[0];
+      xyz = armor_xyza_list[id_list[0]].head<3>();
+      yaw = armor_xyza_list[id_list[0]][3];
+      return;
     }
-  }
-
-  else {
+  } else {
     // 小陀螺时，一侧的装甲板不断出现，另一侧的装甲板不断消失，显然前者被打中的概率更高
+    Eigen::VectorXd ekf_x = target.ekf_x();
     for (int i = 0; i < armor_num; i++) {
       auto delta_angle = tools::limit_rad(armor_xyza_list[i][3] - center_yaw);
       if (std::abs(delta_angle) > comming_angle_) continue;
-      if (w > 0 && delta_angle < leaving_angle_) return i;
-      if (w < 0 && delta_angle > -leaving_angle_) return i;
+      if (ekf_x[7] > 0 && delta_angle < leaving_angle_) {
+        xyz = armor_xyza_list[i].head<3>();
+        yaw = armor_xyza_list[i][3];
+        return;
+      }
+      if (ekf_x[7] < 0 && delta_angle > -leaving_angle_) {
+        xyz = armor_xyza_list[i].head<3>();
+        yaw = armor_xyza_list[i][3];
+        return;
+      }
     }
   }
 
   // 无可射击板：选择 xy 距离最近的装甲板
-  int nearest_id = 0;
-  auto min_dist = 1e10;
-  for (int i = 0; i < armor_num; i++) {
-    auto dist = armor_xyza_list[i].head<2>().norm();
+  for (const auto & xyza : armor_xyza_list) {
+    auto dist = xyza.head<2>().norm();
     if (dist < min_dist) {
       min_dist = dist;
-      nearest_id = i;
+      xyz = xyza.head<3>();
+      yaw = xyza[3];
     }
   }
-  return nearest_id;
 }
 
-Eigen::Matrix<double, 2, 1> Planner::aim(const Target & target, int armor_id, double bullet_speed)
+Eigen::Matrix<double, 2, 1> Planner::aim(const Target & target, double bullet_speed)
 {
-  const std::vector<Eigen::Vector4d> armor_xyza_list = target.armor_xyza_list();
-  if (armor_id < 0 || armor_id >= static_cast<int>(armor_xyza_list.size())) {
-    throw std::runtime_error("Invalid armor id!");
-  }
+  Eigen::Vector3d xyz;
+  double yaw;
+  select_target_xyza(target, target.armor_xyza_list(), xyz, yaw);
 
-  const Eigen::Vector3d xyz = armor_xyza_list[armor_id].head<3>();
+  {
+    std::lock_guard<std::mutex> lock(debug_mutex_);
+    debug_xyza_ = Eigen::Vector4d(xyz.x(), xyz.y(), xyz.z(), yaw);
+  }
 
   auto dist = xyz.head<2>().norm();
   auto azim = std::atan2(xyz.y(), xyz.x());
@@ -268,20 +261,19 @@ Eigen::Matrix<double, 2, 1> Planner::aim(const Target & target, int armor_id, do
   return {tools::limit_rad(azim + yaw_offset_), -bullet_traj.pitch - pitch_offset_};
 }
 
-Trajectory Planner::get_trajectory(
-  Target & target, int armor_id, double yaw0, double bullet_speed)
+Trajectory Planner::get_trajectory(Target & target, double yaw0, double bullet_speed)
 {
   Trajectory traj;
 
   target.predict(-DT * (HALF_HORIZON + 1));
-  auto yaw_pitch_last = aim(target, armor_id, bullet_speed);
+  auto yaw_pitch_last = aim(target, bullet_speed);
 
   target.predict(DT);  // [0] = -HALF_HORIZON * DT -> [HHALF_HORIZON] = 0
-  auto yaw_pitch = aim(target, armor_id, bullet_speed);
+  auto yaw_pitch = aim(target, bullet_speed);
 
   for (int i = 0; i < HORIZON; i++) {
     target.predict(DT);
-    auto yaw_pitch_next = aim(target, armor_id, bullet_speed);
+    auto yaw_pitch_next = aim(target, bullet_speed);
 
     auto yaw_vel = tools::limit_rad(yaw_pitch_next(0) - yaw_pitch_last(0)) / (2 * DT);
     auto pitch_vel = (yaw_pitch_next(1) - yaw_pitch_last(1)) / (2 * DT);
