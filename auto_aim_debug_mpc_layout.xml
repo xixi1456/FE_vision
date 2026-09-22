@@ -9,6 +9,7 @@
        <range left="0.000000" right="30.000000" bottom="-0.100000" top="0.100000"/>
        <limitY/>
        <curve name="/target_yaw" color="#17becf"/>
+    <curve name="/predicted_yaw" color="#2ca02c"/>
        <curve name="/plan_yaw" color="#d62728"/>
        <curve name="/gimbal_yaw" color="#1f77b4"/>
       </plot>

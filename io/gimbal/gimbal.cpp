@@ -16,6 +16,10 @@ Gimbal::Gimbal(const std::string & config_path)
   serial_.setTimeout(timeout);
   auto yaml = tools::load(config_path);
   auto com_port = tools::read<std::string>(yaml, "com_port");
+  if (yaml["pitch_filter_alpha"]) {
+    pitch_filter_alpha_ = tools::read<double>(yaml, "pitch_filter_alpha");
+    pitch_filter_alpha_ = std::clamp(pitch_filter_alpha_, 0.0, 1.0);
+  }
 
   try {
     serial_.setPort(com_port);
@@ -184,9 +188,19 @@ void Gimbal::read_thread()
 
     error_count = 0;
     Eigen::Quaterniond q(rx_data_.q[0], rx_data_.q[1], rx_data_.q[2], rx_data_.q[3]);
-    queue_.push({q, t});
     // 从四元数解算 yaw/pitch/roll (ZYX 内旋)
     Eigen::Vector3d q_ypr = tools::eulers(q, 2, 1, 0);
+    if (!pitch_filter_initialized_) {
+      filtered_pitch_ = q_ypr[1];
+      pitch_filter_initialized_ = true;
+    } else {
+      auto pitch_delta = tools::limit_rad(q_ypr[1] - filtered_pitch_);
+      filtered_pitch_ += pitch_filter_alpha_ * pitch_delta;
+    }
+    q_ypr[1] = filtered_pitch_;
+    filtered_pitch_vel_ += pitch_filter_alpha_ * (rx_data_.pitch_vel - filtered_pitch_vel_);
+    q = Eigen::Quaterniond(tools::rotation_matrix(q_ypr));
+    queue_.push({q, t});
     double q_yaw = q_ypr[0] * 180.0 / M_PI;
     double q_pitch = q_ypr[1] * 180.0 / M_PI;
     double q_roll = q_ypr[2] * 180.0 / M_PI;
@@ -196,7 +210,7 @@ void Gimbal::read_thread()
     state_.yaw = q_ypr[0];
     state_.yaw_vel = rx_data_.yaw_vel;
     state_.pitch = q_ypr[1];
-    state_.pitch_vel = rx_data_.pitch_vel;
+    state_.pitch_vel = filtered_pitch_vel_;
     state_.bullet_speed = rx_data_.bullet_speed;
     state_.bullet_count = rx_data_.bullet_count;
 

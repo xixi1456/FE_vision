@@ -38,7 +38,7 @@ Eigen::Vector4d Planner::get_debug_xyza() const
 Plan Planner::plan(Target target, double bullet_speed)
 {
   // 0. Check bullet speed
-  if (bullet_speed < 10 || bullet_speed > 25) {
+  if (bullet_speed < 2 || bullet_speed > 25) {
     bullet_speed = 22;
   }
 
@@ -86,6 +86,9 @@ Plan Planner::plan(Target target, double bullet_speed)
 
   plan.target_yaw = tools::limit_rad(traj(0, HALF_HORIZON) + yaw0);
   plan.target_pitch = traj(2, HALF_HORIZON);
+  for (int i = 0; i < HORIZON; i++) {
+    plan.predicted_yaw[i] = tools::limit_rad(traj(0, i) + yaw0);
+  }
 
   plan.yaw = tools::limit_rad(yaw_solver_->work->x(0, HALF_HORIZON) + yaw0);
   plan.yaw_vel = yaw_solver_->work->x(1, HALF_HORIZON);

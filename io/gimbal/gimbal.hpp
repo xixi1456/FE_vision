@@ -94,6 +94,10 @@ private:
 
   GimbalMode mode_ = GimbalMode::IDLE;
   GimbalState state_;
+  double pitch_filter_alpha_ = 0.2;
+  double filtered_pitch_ = 0.0;
+  double filtered_pitch_vel_ = 0.0;
+  bool pitch_filter_initialized_ = false;
   tools::ThreadSafeQueue<std::tuple<Eigen::Quaterniond, std::chrono::steady_clock::time_point>>
     queue_{1000};
 

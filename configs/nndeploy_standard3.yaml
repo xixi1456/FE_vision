@@ -5,15 +5,15 @@ enemy_color: "blue"
 yolo_name: nndeploy
 # v8n 模型（OpenVINO IR, fp16）
 nn_model_path: assets/Infantry-v8n-fp16-20260726-D1.8w-B16.xml
-nn_device: CPU
+nn_device: GPU
 nn_conf_threshold: 0.5
-nn_infer_mode: async
+nn_infer_mode: sync
 # nn_keep_both: true   # 调试用：my_color=2，保留蓝红双方/全部白色结果；默认关闭(库内按我方颜色过滤友方)
 classify_model: assets/tiny_resnet.onnx
 yolo11_model_path: assets/yolo11.xml
 yolov8_model_path: assets/yolov8.xml
 yolov5_model_path: assets/yolov5.xml
-device: CPU
+device: GPU
 min_confidence: 0.8
 use_traditional: true
 
@@ -43,13 +43,13 @@ max_temp_lost_count: 15
 outpost_max_temp_lost_count: 75
 
 #####-----aimer参数-----#####
-yaw_offset: 2 # degree -2.5
-pitch_offset: 6.5 # degree 2
-comming_angle: 55 # degree
+yaw_offset: -0.5 # degree -2.5
+pitch_offset: 0 # degree 2
+comming_angle: 60 # degree
 leaving_angle: 20 # degree
 decision_speed: 7 # rad/s
 high_speed_delay_time: 0.0 # s
-low_speed_delay_time: 0.0 # s planner use this value
+low_speed_delay_time: 0.02 # s planner use this value
 
 #####-----shooter参数-----#####
 first_tolerance: 3 # 近距离射击容差，degree
@@ -67,15 +67,15 @@ vid_pid: "2bdf:0001"
 #  0  0  1
 R_gimbal2imubody: [1, 0, 0, 0, 1, 0, 0, 0, 1]
 
-# 重投影误差: 0.1820px
-camera_matrix: [1785.4881526822305, 0, 672.4806478241826, 0, 1785.026019470562, 559.89603224794314, 0, 0, 1]
-distort_coeffs: [-0.076005079619881746, 0.11182817466388446, 0.0005362204787722057, -0.0027546300984895122, 0]
+# 重投影误差: 0.1897px
+camera_matrix: [1217.9844156864679, 0, 653.46394011146765, 0, 1206.6386757356142, 537.56009512082142, 0, 0, 1]
+distort_coeffs: [-0.10160716814676535, 0.085575328434024545, 0.0092940571970437248, -0.0036118342526684465, 0]
 
-# 相机同理想情况的偏角: yaw1.44 pitch-7.28 roll0.96 degree
-# 标定板到世界坐标系原点的水平距离: 1.13 m
-# 标定板同竖直摆放时的偏角: yaw7.61 pitch13.92 roll-0.46 degree
-R_camera2gimbal: [-0.027182119030230909, -0.12616154330853446, 0.99163723074269183, -0.99949106557517331, 0.019998323121329122, -0.024853106601381177, -0.016695575474690555, -0.99180811252093692, -0.12664093215554434]
-t_camera2gimbal: [0.13160669975045827, 0.10377721766577375, 0.024908271912914642]
+# 相机同理想情况的偏角: yaw-0.99 pitch0.80 roll1.02 degree
+# 标定板到世界坐标系原点的水平距离: 2.27 m
+# 标定板同竖直摆放时的偏角: yaw-5.64 pitch32.47 roll1.32 degree
+R_camera2gimbal: [0.017532822458566528, 0.013597217873253218, 0.99975382760094678, -0.99968787357260536, 0.018037114689646375, 0.017286350845548932, -0.017797628171170792, -0.99974485653079492,0.013909215351734368]
+t_camera2gimbal: [0.066702812985102347, -0.022872505925352293, 0.02827173483456628]
 
 #####-----cboard参数-----#####
 quaternion_canid: 0x100
@@ -84,7 +84,9 @@ send_canid: 0xff
 can_interface: "can0"
 
 #####-----gimbal参数-----#####
-com_port: "/dev/gimbal"
+com_port: "/dev/ttyACM0"
+# 云台pitch一阶低通滤波系数，越小越平滑
+pitch_filter_alpha: 0.9
 yaw_kp: 0
 yaw_kd: 0
 pitch_kp: 0
@@ -107,3 +109,8 @@ model: "assets/yolo11_buff_int8.xml"
 #####-----buff_aimer参数-----#####
 fire_gap_time: 0.700   # s
 predict_time: 0.120     # s
+
+height: 2
+grid_num: 100
+grid_size: 1
+delay: 0

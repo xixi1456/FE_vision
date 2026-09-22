@@ -2,6 +2,7 @@
 #define AUTO_AIM__PLANNER_HPP
 
 #include <Eigen/Dense>
+#include <array>
 #include <list>
 #include <mutex>
 #include <optional>
@@ -29,6 +30,7 @@ struct Plan
   float pitch;
   float pitch_vel;
   float pitch_acc;
+  std::array<float, HORIZON> predicted_yaw{};
 };
 
 class Planner

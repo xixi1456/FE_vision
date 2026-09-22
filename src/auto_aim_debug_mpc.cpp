@@ -1,5 +1,6 @@
 #include <fmt/core.h>
 
+#include <array>
 #include <atomic>
 #include <chrono>
 #include <nlohmann/json.hpp>
@@ -18,6 +19,8 @@
 #include "tools/math_tools.hpp"
 #include "tools/plotter.hpp"
 #include "tools/thread_safe_queue.hpp"
+#include "tools/trajectory.hpp"
+#include "tools/yaml.hpp"
 
 using namespace std::chrono_literals;
 
@@ -44,6 +47,8 @@ int main(int argc, char * argv[])
   auto_aim::Solver solver(config_path);
   auto_aim::Tracker tracker(config_path, solver);
   auto_aim::Planner planner(config_path);
+  auto config = tools::load(config_path);
+  auto yaw_offset = tools::read<double>(config, "yaw_offset") / 57.3;
 
   tools::ThreadSafeQueue<std::optional<auto_aim::Target>, true> target_queue(1);
   target_queue.push(std::nullopt);
@@ -57,6 +62,41 @@ int main(int argc, char * argv[])
       auto target = target_queue.front();
       auto gs = gimbal.state();
       auto plan = planner.plan(target, gs.bullet_speed);
+
+      std::array<float, auto_aim::HORIZON> fly_time_yaw{};
+      if (target.has_value()) {
+        auto target_after_flight = *target;
+        auto bullet_speed = gs.bullet_speed;
+        if (bullet_speed < 10 || bullet_speed > 25) bullet_speed = 22;
+
+        auto armor_xyza_list = target_after_flight.armor_xyza_list();
+        auto min_dist = 1e10;
+        Eigen::Vector3d xyz;
+        for (const auto & xyza : armor_xyza_list) {
+          auto dist = xyza.head<2>().norm();
+          if (dist < min_dist) {
+            min_dist = dist;
+            xyz = xyza.head<3>();
+          }
+        }
+
+        auto bullet_traj = tools::Trajectory(bullet_speed, min_dist, xyz.z());
+        target_after_flight.predict(bullet_traj.fly_time);
+        for (int i = 0; i < auto_aim::HORIZON; i++) {
+          auto predicted_armors = target_after_flight.armor_xyza_list();
+          auto predicted_xyz = predicted_armors.front().head<3>();
+          auto predicted_dist = predicted_xyz.head<2>().norm();
+          for (const auto & xyza : predicted_armors) {
+            if (xyza.head<2>().norm() < predicted_dist) {
+              predicted_xyz = xyza.head<3>();
+              predicted_dist = predicted_xyz.head<2>().norm();
+            }
+          }
+          fly_time_yaw[i] =
+            tools::limit_rad(std::atan2(predicted_xyz.y(), predicted_xyz.x()) + yaw_offset);
+          target_after_flight.predict(auto_aim::DT);
+        }
+      }
 
       gimbal.send(
         plan.control, plan.fire, plan.yaw, plan.yaw_vel, plan.yaw_acc, plan.pitch, plan.pitch_vel,
@@ -75,6 +115,7 @@ int main(int argc, char * argv[])
 
       data["target_yaw"] = plan.target_yaw;
       data["target_pitch"] = plan.target_pitch;
+      data["predicted_yaw"] = fly_time_yaw;
 
       data["plan_yaw"] = plan.yaw;
       data["plan_yaw_vel"] = plan.yaw_vel;
