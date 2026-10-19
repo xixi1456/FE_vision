@@ -54,8 +54,9 @@ int main(int argc, char * argv[])
     }
   }
   while (!exiter.exit()) {
-    camera.read(img, t);
-    q = gimbal.q(t - 1ms * delay);
+    camera.read(img, t); 
+    auto delat_t = std::chrono::milliseconds(delay);
+    q = gimbal.q(t - 1 * delat_t);
     solver.set_R_gimbal2world(q);
     cv::Mat result = img.clone();
     std::vector<cv::Point2f> projectedPoints = solver.world2pixel(points);
